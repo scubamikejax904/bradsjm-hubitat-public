@@ -254,6 +254,27 @@ void espHomeSwitchCommand(Map tags) {
 }
 
 @CompileStatic
+void espHomeClimateCommand(Map tags) {
+    sendMessage(MSG_CLIMATE_COMMAND_REQUEST, [
+        1:  [ tags.key as Long, WIRETYPE_FIXED32 ],
+        2:  [ tags.mode != null ? 1 : 0, WIRETYPE_VARINT ],
+        3:  [ (tags.mode ?: 0) as Integer, WIRETYPE_VARINT ],
+        4:  [ tags.targetTemperature != null ? 1 : 0, WIRETYPE_VARINT ],
+        5:  [ (tags.targetTemperature ?: 0) as Float, WIRETYPE_FIXED32 ],
+        6:  [ tags.targetTemperatureLow != null ? 1 : 0, WIRETYPE_VARINT ],
+        7:  [ (tags.targetTemperatureLow ?: 0) as Float, WIRETYPE_FIXED32 ],
+        8:  [ tags.targetTemperatureHigh != null ? 1 : 0, WIRETYPE_VARINT ],
+        9:  [ (tags.targetTemperatureHigh ?: 0) as Float, WIRETYPE_FIXED32 ],
+        12: [ tags.fanMode != null ? 1 : 0, WIRETYPE_VARINT ],
+        13: [ (tags.fanMode ?: 0) as Integer, WIRETYPE_VARINT ],
+        14: [ tags.swingMode != null ? 1 : 0, WIRETYPE_VARINT ],
+        15: [ (tags.swingMode ?: 0) as Integer, WIRETYPE_VARINT ],
+        18: [ tags.preset != null ? 1 : 0, WIRETYPE_VARINT ],
+        19: [ (tags.preset ?: 0) as Integer, WIRETYPE_VARINT ]
+    ], MSG_CLIMATE_STATE_RESPONSE)
+}
+
+@CompileStatic
 void espHomeSubscribeBtleRequest() {
     sendMessage(MSG_SUBSCRIBE_BTLE_REQUEST)
 }
@@ -588,14 +609,31 @@ private static Map espHomeTextSensorState(Map<Integer, List> tags) {
 }
 
 // ADD-2: Climate state decoder
-// Field numbers verified against live ESPHome device captures and current api.proto.
-// Proto ClimateStateResponse fields (ESPHome 2023.x → current):
-//   1=key  2=mode  3=unused_legacy (removed)  4=target_temperature
-//   5=current_temperature  6=fan_mode  7=swing_mode  8=action
-//   9=custom_fan_mode  10=preset  11=custom_preset
-//   12=current_humidity  13=target_humidity
-// hasXxx boolean flags let drivers skip processing absent optional fields.
+// Proto ClimateStateResponse fields per api.proto:
+//   1=key  2=mode  3=current_temperature  4=target_temperature
+//   5=target_temperature_low  6=target_temperature_high  8=action
+//   9=fan_mode  10=swing_mode  11=custom_fan_mode  12=preset
+//   13=custom_preset  14=current_humidity  15=target_humidity
 @CompileStatic
+private static Map espHomeClimateState(Map<Integer, List> tags) {
+    return [
+        type: 'state', platform: 'climate',
+        key: getLongTag(tags, 1),
+        mode: getIntTag(tags, 2),
+        currentTemperature: getFloatTag(tags, 3),
+        targetTemperature: getFloatTag(tags, 4),
+        targetTemperatureLow: getFloatTag(tags, 5),
+        targetTemperatureHigh: getFloatTag(tags, 6),
+        action: getIntTag(tags, 8),
+        fanMode: getIntTag(tags, 9),
+        swingMode: getIntTag(tags, 10),
+        customFanMode: getStringTag(tags, 11),
+        preset: getIntTag(tags, 12),
+        customPreset: getStringTag(tags, 13),
+        currentHumidity: getFloatTag(tags, 14),
+        targetHumidity: getFloatTag(tags, 15)
+    ]
+}
 
 // =============================================================================
 // Entity discovery decoders  (device → hub, on connect)
@@ -779,9 +817,27 @@ private static Map espHomeListEntitiesTextSensorResponse(Map<Integer, List> tags
 
 // ADD-1: Climate entity decoder — ListEntitiesClimateResponse [msg 46]
 // Field numbers per current api.proto ListEntitiesClimateResponse.
-// BUG IN NCLARCK: supportedPresets was read from tag 15 (same as
-// supportedCustomFanModes) — fixed here to tag 16.
 @CompileStatic
+private static Map espHomeListEntitiesClimateResponse(Map<Integer, List> tags) {
+    return parseEntity(tags) + [
+        type: 'entity', platform: 'climate',
+        supportsCurrentTemperature: getBooleanTag(tags, 5),
+        supportsTwoPointTargetTemperature: getBooleanTag(tags, 6),
+        supportedModes: getIntTagList(tags, 7),
+        visualMinTemperature: getFloatTag(tags, 8),
+        visualMaxTemperature: getFloatTag(tags, 9),
+        visualTargetTemperatureStep: getFloatTag(tags, 10),
+        supportsAction: getBooleanTag(tags, 12),
+        supportedFanModes: getIntTagList(tags, 13),
+        supportedSwingModes: getIntTagList(tags, 14),
+        supportedCustomFanModes: getStringTagList(tags, 15),
+        supportedPresets: getIntTagList(tags, 16),
+        supportedCustomPresets: getStringTagList(tags, 17),
+        disabledByDefault: getBooleanTag(tags, 18),
+        icon: getStringTag(tags, 19),
+        entityCategory: toEntityCategory(getIntTag(tags, 20))
+    ]
+}
 
 // =============================================================================
 // Message dispatcher
